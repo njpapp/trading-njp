@@ -24,6 +24,10 @@ app.get('/', (req, res) => {
 });
 
 db.testConnection().then(async () => { // Hacer esta función anónima async
+  // Inicializar el logging en base de datos ahora que la DB está conectada
+  // y ANTES que otros servicios (que podrían usar el logger) se inicialicen.
+  logger.initializeDatabaseLogging(db.query);
+
   // Mensaje de conexión exitosa a DB ya está en db.js y logger.info en server.js
   try {
     await binanceService.initializeBinanceClient();
