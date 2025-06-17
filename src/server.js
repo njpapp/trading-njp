@@ -10,6 +10,7 @@ const logger = require('./utils/logger');
 const binanceService = require('./services/BinanceService');
 const openAIService = require('./services/OpenAIService'); // Import OpenAIService
 const ollamaService = require('./services/OllamaService'); // Import OllamaService
+const openRouterService = require('./services/OpenRouterService'); // NUEVO
 const apiRoutes = require('./routes/index'); // NUEVA IMPORTACIÓN
 const PORT = process.env.PORT || 3000;
 
@@ -50,6 +51,18 @@ db.testConnection().then(async () => { // Hacer esta función anónima async
     } catch (ollamaInitError) {
       logger.error("[Server] Ocurrió un error durante la inicialización de OllamaService:", { error: ollamaInitError.message });
       logger.warn("[Server] Continuará sin OllamaService.");
+    }
+
+    // Intentar inicializar OpenRouter Service (no crítico si falla)
+    try {
+      if (await openRouterService.initializeOpenRouterService()) {
+        logger.info("[Server] OpenRouterService inicializado correctamente.");
+      } else {
+        logger.warn("[Server] OpenRouterService no se pudo inicializar (puede ser por falta de config o error). Continuará sin OpenRouterService.");
+      }
+    } catch (openRouterInitError) {
+      logger.error("[Server] Ocurrió un error durante la inicialización de OpenRouterService:", { error: openRouterInitError.message });
+      logger.warn("[Server] Continuará sin OpenRouterService.");
     }
 
     app.listen(PORT, () => {

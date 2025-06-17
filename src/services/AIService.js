@@ -1,24 +1,28 @@
 const db = require('../database/db');
 const openAIService = require('./OpenAIService');
 const ollamaService = require('./OllamaService');
+const openRouterService = require('./OpenRouterService'); // NUEVO
 const logger = require('../utils/logger');
 
 // Valores por defecto para la configuración de IA si no se encuentran en la DB
 const DEFAULT_AI_CONFIG = {
-  OPENAI_ENABLED: true, // Intentar usar OpenAI por defecto si está disponible
-  OLLAMA_ENABLED: true, // Intentar usar Ollama como fallback o si OpenAI está deshabilitado
-  // Podríamos añadir aquí el modelo por defecto para OpenAI y Ollama si queremos que sea configurable vía DB
-  // OPENAI_DEFAULT_MODEL: 'gpt-3.5-turbo',
-  // OLLAMA_DEFAULT_MODEL: 'gemma:2b',
+  OPENAI_ENABLED: true,
+  OLLAMA_ENABLED: true,
+  OPENROUTER_ENABLED: false, // NUEVO - OpenRouter desactivado por defecto
+  DEFAULT_OPENROUTER_MODEL: 'mistralai/mistral-7b-instruct', // NUEVO - Modelo por defecto para OpenRouter
+  // OPENAI_DEFAULT_MODEL: 'gpt-3.5-turbo', // Existente, si se quisiera
+  // OLLAMA_DEFAULT_MODEL: 'gemma:2b',   // Existente, si se quisiera
 };
 
 async function getAIConfigFromDB() {
   try {
-    const { rows } = await db.query("SELECT key, value FROM settings WHERE key IN ('OPENAI_ENABLED', 'OLLAMA_ENABLED')");
+    const { rows } = await db.query("SELECT key, value FROM settings WHERE key IN ('OPENAI_ENABLED', 'OLLAMA_ENABLED', 'OPENROUTER_ENABLED', 'DEFAULT_OPENROUTER_MODEL')");
     const config = { ...DEFAULT_AI_CONFIG };
     rows.forEach(row => {
       if (row.key === 'OPENAI_ENABLED') config.OPENAI_ENABLED = row.value === 'true';
       if (row.key === 'OLLAMA_ENABLED') config.OLLAMA_ENABLED = row.value === 'true';
+      if (row.key === 'OPENROUTER_ENABLED') config.OPENROUTER_ENABLED = row.value === 'true'; // NUEVO
+      if (row.key === 'DEFAULT_OPENROUTER_MODEL' && row.value) config.DEFAULT_OPENROUTER_MODEL = row.value; // NUEVO
     });
     return config;
   } catch (error) {
@@ -134,10 +138,39 @@ async function getTradingDecision(promptContext, pairId) {
     }
   }
 
+  // Fallback a OpenRouter si OpenAI no se usó o falló, y OpenRouter está habilitado/disponible
+  if (!rawResponse && aiConfig.OPENROUTER_ENABLED && openRouterService.isServiceInitialized()) {
+    logger.info(`[AIService] OpenAI no proporcionó respuesta (o está deshabilitado). Intentando con OpenRouter...`);
+    if(aiProviderError && modelUsed === 'OpenAI') logger.info(`[AIService] Razón del fallo de OpenAI: ${aiProviderError}`);
+    aiProviderError = null; // Resetear error para OpenRouter
+
+    try {
+      const openRouterModel = promptContext.aiOptions?.openRouterModel || aiConfig.DEFAULT_OPENROUTER_MODEL;
+      logger.info(`[AIService] Usando modelo OpenRouter: ${openRouterModel}`);
+      const openRouterResponse = await openRouterService.getDecision(prompt, { model: openRouterModel });
+      if (openRouterResponse) {
+        modelUsed = `OpenRouter:${openRouterModel}`; // Indicar OpenRouter y el modelo específico
+        rawResponse = openRouterResponse;
+        const decisionMatch = openRouterResponse.match(/DECISION:\s*([A-Z]+)/i);
+        const reasonMatch = openRouterResponse.match(/JUSTIFICACION:\s*(.+)/i);
+        decision = decisionMatch ? decisionMatch[1].toUpperCase() : 'NO_ACTION';
+        reason = reasonMatch ? reasonMatch[1] : 'Respuesta de IA (OpenRouter) no contenía justificación clara.';
+        logger.info(`[AIService] Decisión de OpenRouter (${openRouterModel}): ${decision}, Razón: ${reason}`);
+      } else {
+        aiProviderError = 'OpenRouter devolvió una respuesta vacía.';
+        logger.warn(`[AIService] ${aiProviderError} (Modelo: ${openRouterModel})`);
+      }
+    } catch (error) {
+      const openRouterModel = promptContext.aiOptions?.openRouterModel || aiConfig.DEFAULT_OPENROUTER_MODEL;
+      aiProviderError = `Error con OpenRouter (Modelo: ${openRouterModel}): ${error.message}`;
+      logger.error(`[AIService] ${aiProviderError}`, error);
+    }
+  }
+
   // Fallback a Ollama si OpenAI no se usó o falló, y Ollama está habilitado/disponible
   if (!rawResponse && aiConfig.OLLAMA_ENABLED && ollamaService.isServiceAvailable()) {
-    logger.info(`[AIService] OpenAI no proporcionó respuesta (o está deshabilitado). Intentando con Ollama...`);
-    if(aiProviderError) logger.info(`[AIService] Razón del fallo de OpenAI: ${aiProviderError}`);
+    logger.info(`[AIService] OpenAI y/o OpenRouter no proporcionaron respuesta (o están deshabilitados). Intentando con Ollama...`);
+    if(aiProviderError) logger.info(`[AIService] Razón del fallo del proveedor anterior: ${aiProviderError}`);
     aiProviderError = null; // Resetear error para Ollama
 
     try {

@@ -100,7 +100,8 @@ INSERT INTO settings (key, value, description) VALUES
 ('GLOBAL_MIN_RISK_BENEFIT_RATIO', '1.5', 'Minimum risk/benefit ratio required for a trade. Numeric.'),
 ('DEFAULT_TRADE_SIZE_USD', '100', 'Default trade size in USD for new trades if not specified by pair.'),
 ('LOG_LEVEL', 'INFO', 'Logging level for the system (INFO, WARN, ERROR, DEBUG).'),
-('PAPER_TRADING_ENABLED', 'false', 'Enable/Disable Paper Trading mode. Boolean (true/false).');
+('PAPER_TRADING_ENABLED', 'false', 'Enable/Disable Paper Trading mode. Boolean (true/false).'),
+('OPENROUTER_ENABLED', 'false', 'Enable/Disable OpenRouter.ai for decisions. Boolean (true/false).');
 
 -- Ejemplo de cómo añadir un par (esto se haría vía API o interfaz luego)
 -- INSERT INTO trading_pairs (symbol, base_asset, quote_asset, margin_enabled) VALUES ('BTCUSDT', 'BTC', 'USDT', TRUE);
