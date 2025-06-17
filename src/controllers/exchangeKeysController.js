@@ -22,10 +22,17 @@ async function saveExchangeKeys(req, res) {
   }
 
   let credentialsToEncrypt;
-  if (serviceName.toLowerCase() === 'binance') {
+  const lowerServiceName = serviceName.toLowerCase();
+
+  if (lowerServiceName === 'binance') {
+    if (!secretKey) {
+      return res.status(400).json({ message: 'secretKey es requerido para el servicio de Binance.' });
+    }
     credentialsToEncrypt = { apiKey, secretKey };
-  } else if (serviceName.toLowerCase() === 'openai') {
+  } else if (lowerServiceName === 'openai') {
     credentialsToEncrypt = { apiKey }; // OpenAI solo usa apiKey
+  } else if (lowerServiceName === 'openrouter') { // NUEVO CASO
+    credentialsToEncrypt = { apiKey }; // OpenRouter solo usa apiKey
   } else {
     return res.status(400).json({ message: `Servicio '${serviceName}' no soportado para gestión de claves API.` });
   }
@@ -70,27 +77,22 @@ async function saveExchangeKeys(req, res) {
     // NOTA: Esto podría ser problemático si la inicialización tiene efectos secundarios no deseados al repetirse.
     // Un patrón mejor sería un event emitter o un mecanismo de 'hot reload' de config para los servicios.
     // Para este proyecto, una re-inicialización simple es un primer paso.
-    if (serviceName.toLowerCase() === 'binance') {
-        logger.info(`[API][ExchangeKeysCtrl] Intentando re-inicializar BinanceService con nuevas claves...`);
-        // Forzar re-inicialización. BinanceService.initializeBinanceClient() ya tiene lógica para no reinicializar si ya está.
-        // Necesitamos una forma de 'resetear' isInitialized en BinanceService o una función específica de 'reloadKeys'.
-        // Por ahora, esto podría no funcionar como se espera sin modificar BinanceService.
-        // Solución temporal: el usuario deberá reiniciar el bot para que los servicios tomen nuevas claves.
-        // O, modificamos los servicios para que tengan un método .resetAndInitialize()
-        logger.warn(`[API][ExchangeKeysCtrl] REINICIO DEL BOT REQUERIDO para que ${serviceName} utilice las nuevas claves.`);
-        // await BinanceService.initializeBinanceClient(); // Esto no funcionará si isInitialized es true.
-    } else if (serviceName.toLowerCase() === 'openai') {
-        logger.info(`[API][ExchangeKeysCtrl] Intentando re-inicializar OpenAIService con nuevas claves...`);
-        // await OpenAIService.initializeOpenAIService(); // Misma consideración que BinanceService.
-        logger.warn(`[API][ExchangeKeysCtrl] REINICIO DEL BOT REQUERIDO para que ${serviceName} utilice las nuevas claves.`);
+    if (lowerServiceName === 'binance' || lowerServiceName === 'openai' || lowerServiceName === 'openrouter') {
+        logger.warn(`[API][ExchangeKeysCtrl] REINICIO DEL BOT REQUERIDO para que ${lowerServiceName} utilice las nuevas claves.`);
     }
+    // Especificamente para Binance y OpenAI si tuvieran métodos de recarga:
+    // if (lowerServiceName === 'binance') {
+    //     // await BinanceService.reloadKeys();
+    // } else if (lowerServiceName === 'openai') {
+    //     // await OpenAIService.reloadKeys();
+    // }
 
 
-    res.status(200).json({ message: `Claves API para '${serviceName}' guardadas/actualizadas exitosamente. Es posible que se requiera un reinicio del bot para aplicar los cambios.`, data: rows[0] });
+    res.status(200).json({ message: `Claves API para '${lowerServiceName}' guardadas/actualizadas exitosamente. Es posible que se requiera un reinicio del bot para aplicar los cambios.`, data: rows[0] });
 
   } catch (error) {
-    logger.error(`[API][ExchangeKeysCtrl] Error al guardar claves API para ${serviceName}:`, { error: error.message, stack: error.stack });
-    res.status(500).json({ message: `Error al guardar claves API para ${serviceName}.` });
+    logger.error(`[API][ExchangeKeysCtrl] Error al guardar claves API para ${lowerServiceName}:`, { error: error.message, stack: error.stack });
+    res.status(500).json({ message: `Error al guardar claves API para ${lowerServiceName}.` });
   }
 }
 
@@ -99,7 +101,7 @@ async function saveExchangeKeys(req, res) {
  * No devuelve las claves, solo si están configuradas o no.
  */
 async function getExchangeKeysStatus(req, res) {
-    const services = ['binance', 'openai']; // Servicios que gestionamos
+    const services = ['binance', 'openai', 'openrouter']; // Servicios que gestionamos
     const statuses = {};
     try {
         for (const service of services) {
