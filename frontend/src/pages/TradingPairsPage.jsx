@@ -37,6 +37,7 @@ const TradingPairsPage = () => {
   const [editingPair, setEditingPair] = useState(null); // null para nuevo, o el objeto del par para editar
   const [formState, setFormState] = useState({});
   const [formError, setFormError] = useState('');
+  const [pageFeedback, setPageFeedback] = useState({ message: '', type: '' });
 
   const { data: tradingPairs, isLoading, error } = useQuery({
     queryKey: ['tradingPairs'],
@@ -77,9 +78,11 @@ const TradingPairsPage = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tradingPairs'] });
       queryClient.invalidateQueries({ queryKey: ['allTradingPairs'] });
-      // Mostrar confirmación de borrado
+      setPageFeedback({ message: `Par ID ${pairId} eliminado exitosamente.`, type: 'success' });
     },
-    onError: (err) => alert(err.message || 'Error al eliminar el par.'), // Usar un mejor feedback
+    onError: (err, pairId) => {
+      setPageFeedback({ message: err.message || `Error al eliminar el par ID ${pairId}.`, type: 'error' });
+    },
   });
 
 
@@ -126,7 +129,22 @@ const TradingPairsPage = () => {
   const handleFormSubmit = (e) => {
     e.preventDefault();
     setFormError('');
+    setPageFeedback({ message: '', type: '' }); // Clear page feedback on new submit
     let dataToSubmit = { ...formState };
+
+    // Validaciones adicionales
+    if (!/^[A-Z0-9]+$/.test(dataToSubmit.symbol) && !editingPair) {
+        setFormError('Símbolo inválido. Usar solo mayúsculas y números (ej. BTCUSDT).');
+        return;
+    }
+    if (isNaN(parseInt(dataToSubmit.price_precision)) || parseInt(dataToSubmit.price_precision) < 0 || parseInt(dataToSubmit.price_precision) > 8) {
+        setFormError('Precisión de Precio debe ser un número entre 0 y 8.');
+        return;
+    }
+    if (isNaN(parseInt(dataToSubmit.quantity_precision)) || parseInt(dataToSubmit.quantity_precision) < 0 || parseInt(dataToSubmit.quantity_precision) > 8) {
+        setFormError('Precisión de Cantidad debe ser un número entre 0 y 8.');
+        return;
+    }
 
     // Intentar parsear strategy_config si es un string JSON
     if (typeof dataToSubmit.strategy_config === 'string') {
@@ -163,6 +181,13 @@ const TradingPairsPage = () => {
 
   return (
     <div className="container mx-auto p-4 md:p-6 space-y-6">
+      {/* Feedback de la página (ej. para borrado) */}
+      {pageFeedback.message && (
+        <div className={`p-3 rounded-md text-sm mb-4 ${pageFeedback.type === 'success' ? 'bg-green-100 text-green-700 border border-green-300' : 'bg-red-100 text-red-700 border border-red-300'}`}>
+          {pageFeedback.message}
+        </div>
+      )}
+
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-primary">Gestión de Pares de Trading</h1>
         <Button onClick={openAddModal} className="bg-primary text-primary-foreground hover:bg-primary/90">

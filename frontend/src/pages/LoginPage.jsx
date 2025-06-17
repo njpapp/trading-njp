@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import authService from '../services/authService';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext.jsx'; // Updated extension
 
 const LoginPage = () => {
   const [username, setUsername] = useState('');
