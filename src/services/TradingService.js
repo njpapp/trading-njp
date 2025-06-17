@@ -27,10 +27,14 @@ async function getActiveTradingPairs() {
  * Por ahora, esto es un placeholder. Se podría expandir la tabla trading_pairs
  * o tener una tabla de configuración de estrategia por par.
  */
-async function getPairStrategyConfig(pairSymbol) {
-  // Placeholder: Devolver una configuración por defecto.
-  // En el futuro, leer esto de la DB.
-  return {
+/**
+ * Obtiene la configuración de estrategia para un par.
+ * Primero intenta leer desde pair.strategy_config (JSONB de la DB).
+ * Si no existe o es inválida, fusiona con una configuración por defecto del sistema.
+ * @param {object} pair - El objeto del par de trading desde la DB (incluyendo pair.strategy_config).
+ */
+async function getPairStrategyConfig(pair) {
+  const defaultStrategyConfig = {
     klinesInterval: '1h',
     klinesLimit: 100,
     indicators: [
@@ -38,31 +42,54 @@ async function getPairStrategyConfig(pairSymbol) {
       { name: 'EMA', period: 50 },
       { name: 'RSI', period: 14 },
       { name: 'MACD', params: { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 } }
+      // ATR se configura bajo riskParams ahora
     ],
-    riskParams: { // Risk params se detallarán más en Paso 13
-      maxAllowedLossPerTrade: 2, // % (conceptual, se usa stopLossPercentage)
+    riskParams: {
+      maxAllowedLossPerTrade: 2,
       minRiskBenefitRatio: 1.5,
       defaultTradeAmountUSD: 100,
-      useVolatilityCheck: true, // NUEVO
-      atrPeriod: 14, // NUEVO - Periodo para ATR
-      maxAllowedATRPercentageOfPrice: 3.0, // NUEVO - Si ATR > 3% del precio, considerar alta volatilidad
+      useVolatilityCheck: true,
+      atrPeriod: 14,
+      maxAllowedATRPercentageOfPrice: 3.0,
     },
-    orderStrategy: { // Nuevas configuraciones para órdenes inteligentes
-      defaultOrderType: 'MARKET', // 'MARKET', 'LIMIT'
-      limitOrderOffsetPercentage: 0.1, // % del precio actual para offset de orden LIMIT
-      useOCO: false, // Usar OCO para SL/TP
+    orderStrategy: {
+      defaultOrderType: 'MARKET',
+      limitOrderOffsetPercentage: 0.1,
+      useOCO: false,
       useStopLoss: true,
-      stopLossType: 'STOP_LOSS_LIMIT', // 'STOP_LOSS_LIMIT' o podria ser parte de OCO
-      stopLossPercentage: 1.5, // % de offset para el stopPrice
-      stopLossLimitOffsetPercentage: 0.05, // % de offset desde stopPrice para el precio límite del SLL
+      stopLossType: 'STOP_LOSS_LIMIT',
+      stopLossPercentage: 1.5,
+      stopLossLimitOffsetPercentage: 0.05,
       useTakeProfit: true,
-      takeProfitType: 'TAKE_PROFIT_LIMIT', // 'TAKE_PROFIT_LIMIT' o parte de OCO
-      takeProfitPercentage: 3.0, // % de offset para el takeProfit (stopPrice del TPL)
-      takeProfitLimitOffsetPercentage: 0.05, // % de offset desde takeProfitPrice para el precio límite del TPL
+      takeProfitType: 'TAKE_PROFIT_LIMIT',
+      takeProfitPercentage: 3.0,
+      takeProfitLimitOffsetPercentage: 0.05,
     },
     aiOptions: { model: 'gpt-3.5-turbo', temperature: 0.7 },
-    tradeMode: 'SPOT', // Se ajustará según trading_pairs.margin_enabled
+    // tradeMode se determina por pair.margin_enabled en processTradingPair
   };
+
+  if (pair.strategy_config && typeof pair.strategy_config === 'object') {
+    logger.info(`[TradingService] Usando strategy_config de DB para ${pair.symbol}.`, { dbConfig: pair.strategy_config });
+    // Fusionar de forma profunda (deep merge) para que los defaults cubran campos no especificados en DB.
+    // Esto requiere una utilidad de deep merge, o hacerlo manualmente para cada nivel.
+    // Por simplicidad, haremos un merge superficial y para sub-objetos, si existen en DB, reemplazan todo el sub-objeto default.
+    // Una utilidad como lodash.merge sería ideal para un deep merge real.
+    const mergedConfig = {
+      ...defaultStrategyConfig,
+      ...pair.strategy_config, // Valores de DB sobrescriben defaults
+      // Asegurar que los sub-objetos también se fusionen o se sobrescriban con cuidado
+      indicators: pair.strategy_config.indicators || defaultStrategyConfig.indicators,
+      riskParams: { ...defaultStrategyConfig.riskParams, ...(pair.strategy_config.riskParams || {}) },
+      orderStrategy: { ...defaultStrategyConfig.orderStrategy, ...(pair.strategy_config.orderStrategy || {}) },
+      aiOptions: { ...defaultStrategyConfig.aiOptions, ...(pair.strategy_config.aiOptions || {}) },
+    };
+    // logger.debug(`[TradingService] Configuración fusionada para ${pair.symbol}:`, mergedConfig);
+    return mergedConfig;
+  } else {
+    logger.warn(`[TradingService] No se encontró strategy_config válida en DB para ${pair.symbol} o no es un objeto. Usando configuración por defecto.`);
+    return defaultStrategyConfig;
+  }
 }
 
 /**
@@ -73,7 +100,7 @@ async function processTradingPair(pair) {
   logger.info(`[TradingService] Procesando par: ${pair.symbol}`);
 
   try {
-    const strategyConfig = await getPairStrategyConfig(pair.symbol);
+    const strategyConfig = await getPairStrategyConfig(pair);
     const tradeMode = pair.margin_enabled ? 'MARGIN' : 'SPOT'; // Determinar modo basado en DB
 
     // 1. Obtener datos de mercado

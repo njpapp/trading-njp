@@ -1,5 +1,6 @@
 const logger = require('../utils/logger');
 const dotenv = require('dotenv');
+const jwt = require('jsonwebtoken'); // Added
 
 dotenv.config();
 
@@ -36,4 +37,49 @@ function apiKeyAuth(req, res, next) {
 
 module.exports = {
   apiKeyAuth,
+  jwtAuth,
 };
+
+const JWT_SECRET = process.env.JWT_SECRET; // Ya debería estar cargado por dotenv al inicio del archivo
+
+function jwtAuth(req, res, next) {
+  if (!JWT_SECRET) {
+    logger.error('[AuthMiddleware][JWT] JWT_SECRET no configurado en el servidor. Autenticación JWT deshabilitada.');
+    return res.status(500).json({ message: 'Error de configuración del servidor: Autenticación no disponible.' });
+  }
+
+  const authHeader = req.header('Authorization');
+
+  if (!authHeader) {
+    logger.warn(`[AuthMiddleware][JWT] Acceso denegado: Falta header 'Authorization' en la solicitud a ${req.method} ${req.originalUrl}`);
+    return res.status(401).json({ message: 'Acceso no autorizado: Token no proporcionado.' });
+  }
+
+  // El header debería ser "Bearer <token>"
+  const parts = authHeader.split(' ');
+  if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer' || !parts[1]) {
+    logger.warn(`[AuthMiddleware][JWT] Acceso denegado: Formato de token inválido en 'Authorization' header para ${req.method} ${req.originalUrl}`);
+    return res.status(401).json({ message: 'Acceso no autorizado: Formato de token inválido.' });
+  }
+
+  const token = parts[1];
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded; // Adjuntar payload del token (ej. { userId, username }) a req.user
+    logger.debug(`[AuthMiddleware][JWT] Token JWT validado exitosamente para usuario: ${req.user.username} (ID: ${req.user.userId}). Acceso concedido a ${req.method} ${req.originalUrl}`);
+    next();
+  } catch (error) {
+    if (error instanceof jwt.TokenExpiredError) {
+      logger.warn(`[AuthMiddleware][JWT] Acceso denegado: Token JWT expirado para ${req.method} ${req.originalUrl}`, { error: error.message });
+      return res.status(401).json({ message: 'Acceso no autorizado: Token expirado.' });
+    }
+    if (error instanceof jwt.JsonWebTokenError) {
+      logger.warn(`[AuthMiddleware][JWT] Acceso denegado: Token JWT inválido (JsonWebTokenError) para ${req.method} ${req.originalUrl}`, { error: error.message });
+      return res.status(401).json({ message: 'Acceso no autorizado: Token inválido.' });
+    }
+    // Otros errores
+    logger.error(`[AuthMiddleware][JWT] Error inesperado al verificar token JWT para ${req.method} ${req.originalUrl}`, { error: error.message });
+    return res.status(500).json({ message: 'Error interno al procesar el token.' });
+  }
+}

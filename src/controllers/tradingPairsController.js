@@ -53,7 +53,8 @@ async function addTradingPair(req, res) {
   const {
     symbol, base_asset, quote_asset, is_active = true,
     min_trade_size = 0, max_trade_size = null, tick_size = null, step_size = null,
-    margin_enabled = false, price_precision = 8, quantity_precision = 8
+    margin_enabled = false, price_precision = 8, quantity_precision = 8,
+    strategy_config = null // strategy_config es opcional, puede ser un objeto JSON
   } = req.body;
 
   if (!symbol || !base_asset || !quote_asset) {
@@ -62,11 +63,12 @@ async function addTradingPair(req, res) {
 
   try {
     const { rows } = await db.query(
-      `INSERT INTO trading_pairs (symbol, base_asset, quote_asset, is_active, min_trade_size, max_trade_size, tick_size, step_size, margin_enabled, price_precision, quantity_precision, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+      `INSERT INTO trading_pairs (symbol, base_asset, quote_asset, is_active, min_trade_size, max_trade_size, tick_size, step_size, margin_enabled, price_precision, quantity_precision, strategy_config, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
        RETURNING *`,
       [symbol.toUpperCase(), base_asset.toUpperCase(), quote_asset.toUpperCase(), is_active,
-       min_trade_size, max_trade_size, tick_size, step_size, margin_enabled, price_precision, quantity_precision]
+       min_trade_size, max_trade_size, tick_size, step_size, margin_enabled, price_precision, quantity_precision,
+       strategy_config ? JSON.stringify(strategy_config) : null]
     );
     const newPair = rows[0];
     logger.info('[API][TradingPairsCtrl] Nuevo par de trading añadido:', { newPair });
@@ -90,7 +92,7 @@ async function updateTradingPair(req, res) {
   const { id } = req.params;
   const {
     is_active, min_trade_size, max_trade_size, tick_size, step_size,
-    margin_enabled, price_precision, quantity_precision
+    margin_enabled, price_precision, quantity_precision, strategy_config
     // No permitir cambiar symbol, base_asset, quote_asset vía este endpoint.
     // Si se necesita cambiar eso, es mejor borrar y crear uno nuevo para evitar inconsistencias.
   } = req.body;
@@ -108,6 +110,7 @@ async function updateTradingPair(req, res) {
   if (margin_enabled !== undefined) { fieldsToUpdate.push(`margin_enabled = $${queryIndex++}`); values.push(margin_enabled); }
   if (price_precision !== undefined) { fieldsToUpdate.push(`price_precision = $${queryIndex++}`); values.push(price_precision); }
   if (quantity_precision !== undefined) { fieldsToUpdate.push(`quantity_precision = $${queryIndex++}`); values.push(quantity_precision); }
+  if (strategy_config !== undefined) { fieldsToUpdate.push(`strategy_config = $${queryIndex++}`); values.push(strategy_config ? JSON.stringify(strategy_config) : null); } // Añadido para strategy_config
 
   if (fieldsToUpdate.length === 0) {
     return res.status(400).json({ message: 'No se proporcionaron campos para actualizar.' });

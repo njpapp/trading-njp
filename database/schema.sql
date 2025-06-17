@@ -20,6 +20,7 @@ CREATE TABLE trading_pairs (
     step_size DECIMAL(20, 8), -- Mínima variación de cantidad
     price_precision INTEGER DEFAULT 8, -- Número de decimales para el precio
     quantity_precision INTEGER DEFAULT 8, -- Número de decimales para la cantidad
+    strategy_config JSONB DEFAULT NULL, -- Configuración de estrategia específica del par (indicadores, SL/TP %, etc.)
     margin_enabled BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -108,3 +109,17 @@ INSERT INTO settings (key, value, description) VALUES
 -- La encriptación/desencriptación se manejará en la aplicación.
 -- Se necesitará una API_ENCRYPTION_KEY en las variables de entorno.
 -- IV y AuthTag son cruciales para AES-GCM.
+
+
+-- Tabla de Usuarios para Autenticación del Dashboard/API
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    last_login TIMESTAMP WITH TIME ZONE
+);
+
+-- Considerar añadir un usuario admin por defecto o un script para crearlo
+-- Ejemplo (contraseña 'adminpassword', debe ser hasheada por la app al registrar):
+-- INSERT INTO users (username, password_hash) VALUES ('admin', 'hash_de_adminpassword');
