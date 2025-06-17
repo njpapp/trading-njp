@@ -155,21 +155,107 @@ async function createSpotOrder(symbol, side, type, quantity, price, options = {}
 
   // Validar side y type
   const validSides = ['BUY', 'SELL'];
-  const validTypes = ['MARKET', 'LIMIT']; // Podríamos añadir: STOP_LOSS, STOP_LOSS_LIMIT, TAKE_PROFIT, TAKE_PROFIT_LIMIT, LIMIT_MAKER
+  const validTypes = ['MARKET', 'LIMIT', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT']; // Añadidos tipos avanzados
 
   if (!validSides.includes(side.toUpperCase())) {
     throw new Error(`Lado de orden inválido: ${side}. Usar BUY o SELL.`);
   }
-  if (!validTypes.includes(type.toUpperCase())) {
-    throw new Error(`Tipo de orden inválido: ${type}. Usar MARKET o LIMIT.`);
+  const orderType = type.toUpperCase(); // Convertir a mayúsculas antes de validar
+  if (!validTypes.includes(orderType)) {
+    throw new Error(`Tipo de orden inválido: ${type}. Usar ${validTypes.join(', ')}.`);
   }
 
   const orderSide = side.toUpperCase();
-  const orderType = type.toUpperCase();
+  // const orderType = type.toUpperCase(); // Ya se definió y validó arriba
 
   try {
     let orderResult;
-    const orderOptions = { ...options }; // Clonar opciones para no modificar el original
+    const orderOptions = { ...options, type: orderType }; // Asegurar que type está en options
+
+    // Preparar parámetros comunes
+    // quantity: cantidad de la moneda base
+    // price: precio por unidad de la moneda base (requerido para LIMIT y *_LIMIT)
+    // options.stopPrice: requerido para STOP_LOSS_LIMIT, TAKE_PROFIT_LIMIT
+
+    if (orderType === 'LIMIT' || orderType === 'STOP_LOSS_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT') {
+      if (!price || price <= 0) {
+        throw new Error(`El precio es requerido para órdenes ${orderType} y debe ser positivo.`);
+      }
+      if ((orderType === 'STOP_LOSS_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT') && (!orderOptions.stopPrice || orderOptions.stopPrice <= 0)) {
+        throw new Error(`stopPrice es requerido en options para órdenes ${orderType} y debe ser positivo.`);
+      }
+    }
+
+    // La librería node-binance-api usa los métodos .buy() y .sell() para todos estos tipos de órdenes spot,
+    // diferenciándolos por el parámetro 'type' y las opciones adicionales pasadas en el 4to argumento.
+    // price aquí es el precio límite para LIMIT, STOP_LOSS_LIMIT, TAKE_PROFIT_LIMIT
+    // Para MARKET, price se ignora (o la librería lo espera como 0).
+    let executionPrice = (orderType === 'MARKET') ? 0 : price;
+
+    if (orderType === 'LIMIT') {
+      // orderOptions ya incluye el type: 'LIMIT' si se pasó así
+      logger.info(`[BinanceService] Creando orden ${orderType} ${orderSide} para ${quantity} ${symbol} @ ${executionPrice}`, orderOptions);
+      if (orderSide === 'BUY') {
+        orderResult = await binanceClient.buy(symbol, quantity, executionPrice, orderOptions);
+      } else { // SELL
+        orderResult = await binanceClient.sell(symbol, quantity, executionPrice, orderOptions);
+      }
+    } else if (orderType === 'MARKET') {
+      logger.info(`[BinanceService] Creando orden ${orderType} ${orderSide} para ${quantity} ${symbol}`, orderOptions);
+      if (orderSide === 'BUY') {
+        orderResult = await binanceClient.marketBuy(symbol, quantity, orderOptions);
+      } else { // SELL
+        orderResult = await binanceClient.marketSell(symbol, quantity, orderOptions);
+      }
+    } else if (orderType === 'STOP_LOSS_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT') {
+        logger.info(`[BinanceService] Creando orden ${orderType} ${orderSide} para ${quantity} ${symbol} @ Price: ${executionPrice}, StopPrice: ${orderOptions.stopPrice}`, orderOptions);
+        if (orderSide === 'BUY') {
+            orderResult = await binanceClient.buy(symbol, quantity, executionPrice, orderOptions);
+        } else { // SELL
+            orderResult = await binanceClient.sell(symbol, quantity, executionPrice, orderOptions);
+        }
+    }
+    // Código anterior para referencia y eliminación:
+    /*
+    if (orderType === 'LIMIT') {
+      if (!price || price <= 0) {
+        throw new Error('El precio es requerido para órdenes LIMIT y debe ser positivo.');
+      }
+      // Para órdenes LIMIT, 'price' y 'quantity' son suficientes para la librería.
+      // Opciones adicionales como timeInForce (GTC, IOC, FOK) pueden ir en orderOptions.
+      // Ejemplo: orderOptions.timeInForce = 'GTC';
+      logger.info(`[BinanceService] Creando orden LIMIT ${orderSide} para ${quantity} ${symbol} @ ${price}`, orderOptions);
+      if (orderSide === 'BUY') {
+        orderResult = await binanceClient.buy(symbol, quantity, price, orderOptions, (error, response) => {
+          if (error) return logger.error('[BinanceService] Error en callback de buy (LIMIT):', JSON.parse(error.body).msg || error);
+          // logger.debug('[BinanceService] Respuesta de buy (LIMIT):', response);
+        });
+      } else { // SELL
+        orderResult = await binanceClient.sell(symbol, quantity, price, orderOptions, (error, response) => {
+          if (error) return logger.error('[BinanceService] Error en callback de sell (LIMIT):', JSON.parse(error.body).msg || error);
+          // logger.debug('[BinanceService] Respuesta de sell (LIMIT):', response);
+        });
+      }
+    } else if (orderType === 'MARKET') {
+      // Para órdenes MARKET, el precio no se especifica.
+      // La 'quantity' es para la moneda base en compras y ventas.
+      // Binance también permite 'quoteOrderQty' para MARKET BUY (gastar X de la moneda cotizada).
+      // Esta implementación usará 'quantity' (moneda base) por defecto.
+      // Si se quiere usar quoteOrderQty, se puede pasar en options.
+      logger.info(`[BinanceService] Creando orden MARKET ${orderSide} para ${quantity} ${symbol}`, orderOptions);
+      if (orderSide === 'BUY') {
+         // Para market buy, la librería espera (symbol, quantity, price=0, options)
+         // donde price=0 indica market.
+        orderResult = await binanceClient.marketBuy(symbol, quantity, orderOptions, (error, response) => {
+            if (error) return logger.error('[BinanceService] Error en callback de marketBuy:', JSON.parse(error.body).msg || error);
+        });
+      } else { // SELL
+        orderResult = await binanceClient.marketSell(symbol, quantity, orderOptions, (error, response) => {
+            if (error) return logger.error('[BinanceService] Error en callback de marketSell:', JSON.parse(error.body).msg || error);
+        });
+      }
+    }
+    */
 
     // Preparar parámetros comunes
     // quantity: cantidad de la moneda base
@@ -335,7 +421,8 @@ async function createMarginOrder(symbol, side, type, quantity, price, options = 
   if (!isInitialized && !binanceClient) throw new Error('Binance client no inicializado.');
 
   const validSides = ['BUY', 'SELL'];
-  const validTypes = ['MARKET', 'LIMIT']; // Podríamos añadir más tipos específicos de margen si la API los soporta directamente
+  // Actualizado para incluir STOP_LOSS_LIMIT, TAKE_PROFIT_LIMIT
+  const validTypes = ['MARKET', 'LIMIT', 'STOP_LOSS_LIMIT', 'TAKE_PROFIT_LIMIT'];
 
   if (!symbol) {
     throw new Error('El símbolo es requerido para órdenes de margen.');
@@ -343,41 +430,45 @@ async function createMarginOrder(symbol, side, type, quantity, price, options = 
   if (!validSides.includes(side.toUpperCase())) {
     throw new Error(`Lado de orden inválido: ${side}. Usar BUY o SELL.`);
   }
-  if (!validTypes.includes(type.toUpperCase())) {
-    throw new Error(`Tipo de orden inválido: ${type}. Usar MARKET o LIMIT.`);
-  }
-
   const orderSide = side.toUpperCase();
   const orderType = type.toUpperCase();
+  if (!validTypes.includes(orderType)) {
+    throw new Error(`Tipo de orden inválido: ${type}. Usar ${validTypes.join(', ')}.`);
+  }
+
+  const executionOptions = { ...options };
+  let orderPrice = price;
+  let stopPriceValue = options.stopPrice;
+
+  if (orderType === 'LIMIT' || orderType === 'STOP_LOSS_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT') {
+    if (!orderPrice || orderPrice <= 0) {
+      throw new Error(`El precio (${orderPrice}) es requerido para órdenes ${orderType} y debe ser positivo.`);
+    }
+  }
+  if (orderType === 'STOP_LOSS_LIMIT' || orderType === 'TAKE_PROFIT_LIMIT') {
+    if (!stopPriceValue || stopPriceValue <= 0) {
+      throw new Error(`stopPrice (${stopPriceValue}) es requerido para órdenes ${orderType} y debe ser positivo.`);
+    }
+    // La librería espera stopPrice DENTRO de executionOptions para marginOrder cuando el tipo es *_LIMIT
+    // PERO la llamada a marginOrder es marginOrder(side, symbol, quantity, price_for_limit, type, options)
+    // Aquí 'type' ya es STOP_LOSS_LIMIT, etc. El 'price_for_limit' es el precio de la orden límite.
+    // 'options' (executionOptions) debe contener 'stopPrice'.
+    executionOptions.stopPrice = stopPriceValue;
+  }
+
+  // Para la llamada a binanceClient.marginOrder, el parámetro 'price' es el precio de la orden LIMIT.
+  // Para MARKET, este parámetro se ignora o se pasa como false/0.
+  // Para STOP_LOSS_LIMIT y TAKE_PROFIT_LIMIT, este parámetro es el precio LÍMITE de la orden.
+  let callPrice = orderPrice;
+  if (orderType === 'MARKET') {
+    callPrice = false; // O 0, la librería lo maneja. 'false' es más explícito.
+  }
 
   try {
-    let orderResult;
-    // La librería node-binance-api usa opciones dentro del método para margen.
-    // Opciones comunes: isIsolated (TRUE/FALSE), newClientOrderId, etc.
-    // stopPrice, icebergQty podrían no ser soportados directamente por el método genérico de orden de margen
-    // y podrían requerir llamadas a endpoints específicos si existen.
-    // Por ahora, nos enfocamos en MARKET y LIMIT.
-
-    // El método es client.marginOrder(side, symbol, quantity, price_optional, type_optional, options_optional, callback)
-    // Para LIMIT: client.marginOrder('SELL', 'BTCUSDT', 1, 10000, 'LIMIT', {isIsolated: 'TRUE'})
-    // Para MARKET: client.marginOrder('SELL', 'BTCUSDT', 1, false, 'MARKET', {isIsolated: 'TRUE'})
-
-    const executionOptions = { ...options }; // isIsolated: 'TRUE' o 'FALSE' (default), etc.
-
-    if (orderType === 'LIMIT') {
-      if (!price || price <= 0) {
-        throw new Error('El precio es requerido para órdenes LIMIT y debe ser positivo.');
-      }
-      logger.info(`[BinanceService] Creando orden de MARGEN ${orderType} ${orderSide} para ${quantity} ${symbol} @ ${price}`, executionOptions);
-      orderResult = await binanceClient.marginOrder(orderSide, symbol, quantity, price, 'LIMIT', executionOptions);
-    } else { // MARKET
-      logger.info(`[BinanceService] Creando orden de MARGEN ${orderType} ${orderSide} para ${quantity} ${symbol}`, executionOptions);
-      // Para market, el precio se omite (o se pasa como false/0 según la librería)
-      orderResult = await binanceClient.marginOrder(orderSide, symbol, quantity, false, 'MARKET', executionOptions);
-    }
+    logger.info(`[BinanceService] Creando orden de MARGEN ${orderType} ${orderSide} para ${quantity} ${symbol}` + (callPrice ? ` @ ${callPrice}` : '') + (stopPriceValue ? ` Stop: ${stopPriceValue}` : ''), executionOptions);
+    const orderResult = await binanceClient.marginOrder(orderSide, symbol, quantity, callPrice, orderType, executionOptions);
 
     logger.info(`[BinanceService] Orden de MARGEN ${orderType} ${orderSide} creada para ${symbol}. Resultado:`, orderResult);
-    // Respuesta típica: { symbol, orderId, clientOrderId, tranId (si se creó préstamo/reembolso automático), ... }
     return orderResult;
 
   } catch (error) {
@@ -497,8 +588,49 @@ module.exports = {
   initializeBinanceClient,
   getKlines, getDepth, getTicker,
   createSpotOrder, cancelSpotOrder, getSpotOrderStatus,
+  ocoSpotOrder, // <--- NUEVA ORDEN OCO SPOT
   marginBorrow, marginRepay, createMarginOrder, cancelMarginOrder, getMarginOrderStatus,
   getAccountBalances,
-  getCrossMarginAccountDetails, // Nueva
-  getIsolatedMarginAccountDetails, // Nueva
+  getCrossMarginAccountDetails,
+  getIsolatedMarginAccountDetails,
 };
+
+async function ocoSpotOrder(symbol, side, quantity, price, stopPrice, stopLimitPrice, options = {}) {
+  if (!isInitialized && !binanceClient) throw new Error('Binance client no inicializado.');
+
+  // Validaciones básicas
+  if (!symbol || !side || !quantity || !price || !stopPrice || !stopLimitPrice) {
+    throw new Error('Parámetros incompletos para orden OCO Spot. Se requieren: symbol, side, quantity, price (límite), stopPrice, stopLimitPrice.');
+  }
+  if (quantity <= 0 || price <= 0 || stopPrice <= 0 || stopLimitPrice <= 0) {
+    throw new Error('Quantity, price, stopPrice y stopLimitPrice deben ser positivos para OCO.');
+  }
+  const validSides = ['BUY', 'SELL'];
+  if (!validSides.includes(side.toUpperCase())) {
+    throw new Error(`Lado de orden OCO inválido: ${side}. Usar BUY o SELL.`);
+  }
+  const orderSide = side.toUpperCase();
+
+  // Opciones adicionales para OCO: listClientOrderId, limitClientOrderId, stopClientOrderId, limitIcebergQty, stopIcebergQty, newOrderRespType
+  const executionOptions = { ...options };
+  // stopLimitTimeInForce es otra opción posible.
+
+  try {
+    logger.info(`[BinanceService] Creando orden OCO Spot ${orderSide} para ${quantity} ${symbol}: Price=${price}, StopPrice=${stopPrice}, StopLimitPrice=${stopLimitPrice}`, executionOptions);
+
+    // La función en node-binance-api es:
+    // ocoOrder(side, symbol, quantity, price, stopPrice, stopLimitPrice, flags = {})
+    // donde price es el precio de la orden Limit
+    // stopPrice es el precio de activación para la orden StopLimit
+    // stopLimitPrice es el precio límite para la orden StopLimit
+    const result = await binanceClient.ocoOrder(orderSide, symbol, quantity, price, stopPrice, stopLimitPrice, executionOptions);
+
+    logger.info(`[BinanceService] Orden OCO Spot ${orderSide} creada para ${symbol}. Resultado:`, result);
+    // Respuesta esperada: { orderListId, contingencyType: 'OCO', listStatusType, listOrderStatus, listClientOrderId, transactionTime, symbol, orders: [{}, {}], orderReports: [{}, {}] }
+    return result;
+  } catch (error) {
+    const errorMessage = error.body ? JSON.parse(error.body).msg : error.message;
+    logger.error(`[BinanceService] Error al crear orden OCO Spot ${orderSide} para ${symbol}:`, { error: errorMessage, stack: error.stack });
+    throw new Error(errorMessage || error.message);
+  }
+}
