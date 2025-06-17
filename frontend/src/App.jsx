@@ -37,8 +37,8 @@ function AppRoutes() {
 
       {/* Rutas Protegidas */}
       <Route element={<ProtectedRoute />}> {/* Envuelve las rutas que necesitan autenticación */}
-        <Route path="/" element={<MainLayout><Outlet /></MainLayout>}>
-          <Route index element={<DashboardPage />} />
+        <Route path="/" element={<MainLayout><DashboardPage /></MainLayout>}>
+          {/* <Route index element={<DashboardPage />} /> */}
           <Route path="settings" element={<SettingsPage />} />
           <Route path="trading-pairs" element={<TradingPairsPage />} />
           <Route path="logs" element={<LogsPage />} />

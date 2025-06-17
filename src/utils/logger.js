@@ -1,9 +1,8 @@
-const db = require('../database/db'); // Importar el módulo de DB para logging en base de datos
 const dotenv = require('dotenv');
-
 dotenv.config();
 
-// Niveles de Log (inspirados en RFC5424 syslog levels)
+// NO IMPORTAR db aquí: const db = require('../database/db');
+
 const LOG_LEVELS = {
   DEBUG: 0,
   INFO: 1,
@@ -11,13 +10,46 @@ const LOG_LEVELS = {
   ERROR: 3,
 };
 
-// Obtener el nivel de log configurado (desde .env o DB setting más adelante)
-// Por ahora, usaremos una variable de entorno, con INFO como default.
-const configuredLogLevelName = (process.env.LOG_LEVEL || 'INFO').toUpperCase();
-const configuredLogLevel = LOG_LEVELS[configuredLogLevelName] !== undefined ? LOG_LEVELS[configuredLogLevelName] : LOG_LEVELS.INFO;
+let configuredLogLevelName = (process.env.LOG_LEVEL || 'INFO').toUpperCase();
+let configuredLogLevel = LOG_LEVELS[configuredLogLevelName] !== undefined ? LOG_LEVELS[configuredLogLevelName] : LOG_LEVELS.INFO;
 
-// Flag para habilitar/deshabilitar el logging en DB (podría ser una config de DB también)
-const DB_LOGGING_ENABLED = process.env.DB_LOGGING_ENABLED === 'true';
+let DB_LOGGING_ENABLED = process.env.DB_LOGGING_ENABLED === 'true';
+let executeDbQuery = null; // Función para ejecutar queries, se inyectará
+let dbLoggingInitialized = false;
+let dbLoggingWarningLogged = false; // Para evitar spam de warnings
+
+/**
+ * Inicializa la capacidad de logging en base de datos.
+ * @param {function} queryFunction - La función db.query(text, params) del módulo de base de datos.
+ */
+function initializeDatabaseLogging(queryFunction) {
+  if (typeof queryFunction === 'function') {
+    executeDbQuery = queryFunction;
+    dbLoggingInitialized = true;
+    console.log('[LoggerInit] Logging en base de datos inicializado y configurado.'); // Usar console.log aquí
+  } else {
+    console.error('[LoggerInit] Falló la inicialización del logging en DB: queryFunction no es una función.');
+  }
+}
+
+// Función para actualizar el nivel de log dinámicamente (ej. desde settings)
+function setLogLevel(levelName) {
+    const newLevel = LOG_LEVELS[levelName.toUpperCase()];
+    if (newLevel !== undefined) {
+        configuredLogLevelName = levelName.toUpperCase();
+        configuredLogLevel = newLevel;
+        // Usar el logger para loguear esto, si ya está disponible, o console
+        (logger.info || console.log)(`[Logger] Nivel de log configurado a: ${configuredLogLevelName}`);
+    } else {
+        (logger.warn || console.warn)(`[Logger] Intento de configurar nivel de log inválido: ${levelName}`);
+    }
+}
+
+function setDbLoggingEnabled(isEnabled) {
+    DB_LOGGING_ENABLED = isEnabled;
+    (logger.info || console.log)(`[Logger] Logging en base de datos configurado a: ${DB_LOGGING_ENABLED}`);
+}
+
 
 function formatMessage(levelName, message, contextData) {
   const timestamp = new Date().toISOString();
@@ -26,8 +58,7 @@ function formatMessage(levelName, message, contextData) {
     try {
       logEntry += ` - Context: ${JSON.stringify(contextData)}`;
     } catch (e) {
-      // Ignorar error de serialización de contexto, pero loguearlo una vez
-      console.warn('Failed to serialize context data for logging:', contextData);
+      console.warn('[LoggerFormat] Falló la serialización del context data para logging:', contextData);
     }
   }
   return logEntry;
@@ -37,11 +68,17 @@ async function logToDb(levelName, message, contextData) {
   if (!DB_LOGGING_ENABLED) {
     return;
   }
+  if (!dbLoggingInitialized || typeof executeDbQuery !== 'function') {
+    if (!dbLoggingWarningLogged) { // Loguear la advertencia solo una vez
+        console.warn('[LoggerDB] Logging en base de datos no inicializado o función de query no disponible. Saltando log en DB.');
+        dbLoggingWarningLogged = true;
+    }
+    return;
+  }
 
-  // Validar que el levelName es uno de los definidos en el ENUM de la DB
   const validLevels = ['INFO', 'WARN', 'ERROR', 'DEBUG'];
   if (!validLevels.includes(levelName)) {
-      console.warn(`[Logger] Invalid log level '${levelName}' for DB logging. Skipping.`);
+      console.warn(`[LoggerDB] Nivel de log inválido '${levelName}' para DB logging. Saltando.`);
       return;
   }
 
@@ -50,12 +87,10 @@ async function logToDb(levelName, message, contextData) {
     VALUES ($1, $2, $3)
   `;
   try {
-    // Convertir contextData a JSONB, o null si está vacío o es inválido
     const contextJson = contextData && Object.keys(contextData).length > 0 ? JSON.stringify(contextData) : null;
-    await db.query(query, [levelName, message, contextJson]);
+    await executeDbQuery(query, [levelName, message, contextJson]);
   } catch (error) {
-    // Si falla el logging en DB, escribir en consola para no perder el error de logging
-    console.error('[Logger] Failed to write log to database:', error.message, 'Original log:', formatMessage(levelName, message, contextData));
+    console.error('[LoggerDB] Falló la escritura del log en la base de datos:', error.message, 'Log Original:', formatMessage(levelName, message, contextData));
   }
 }
 
@@ -84,22 +119,9 @@ const logger = {
       logToDb('ERROR', message, contextData);
     }
   },
-  // Método para cambiar el nivel de log dinámicamente si es necesario (ej. desde config de DB)
-  // setLevel: (levelName) => {
-  //   const newLevel = LOG_LEVELS[levelName.toUpperCase()];
-  //   if (newLevel !== undefined) {
-  //     configuredLogLevel = newLevel;
-  //     console.log(formatMessage('INFO', `Log level set to ${levelName.toUpperCase()}`));
-  //   } else {
-  //     console.warn(formatMessage('WARN', `Attempted to set invalid log level: ${levelName}`));
-  //   }
-  // }
+  initializeDatabaseLogging, // Exponer la función de inicialización
+  setLogLevel, // Exponer para cambiar nivel dinámicamente
+  setDbLoggingEnabled, // Exponer para cambiar dinámicamente
 };
-
-// Ejemplo de uso (se puede comentar o quitar)
-// logger.debug('Este es un mensaje de debug.', { userId: 123 });
-// logger.info('Este es un mensaje informativo.');
-// logger.warn('Esto es una advertencia.', { value: 'test' });
-// logger.error('Ocurrió un error!', { errorDetails: 'stack trace...' });
 
 module.exports = logger;

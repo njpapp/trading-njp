@@ -1,32 +1,41 @@
 const crypto = require('crypto');
 const dotenv = require('dotenv');
 
+// Asegurar que dotenv.config() se llama lo más pronto posible.
+// Si hay un archivo .env en la raíz del proyecto, esto cargará las variables.
+// Si se llama desde un punto de entrada que ya hizo dotenv.config(), no hay problema.
 dotenv.config();
 
 const ALGORITHM = 'aes-256-gcm';
-// La API_ENCRYPTION_KEY debe ser una cadena hexadecimal de 64 caracteres (32 bytes)
 const ENCRYPTION_KEY_HEX = process.env.API_ENCRYPTION_KEY;
 
-if (!ENCRYPTION_KEY_HEX || ENCRYPTION_KEY_HEX.length !== 64) {
-  // En un entorno de producción real, esto debería impedir que la aplicación se inicie
-  // o usar un mecanismo más seguro para la gestión de claves (ej. HashiCorp Vault, AWS KMS)
-  console.error(
-    'CRITICAL: API_ENCRYPTION_KEY no está definida correctamente en las variables de entorno. ' +
-    'Debe ser una cadena hexadecimal de 64 caracteres (32 bytes). ' +
-    'Las funciones de encriptación/desencriptación no serán seguras.'
-  );
-  // Por ahora, para permitir que la aplicación continúe (en desarrollo),
-  // usaremos una clave por defecto insegura si no está configurada.
-  // ¡ESTO NO DEBE HACERSE EN PRODUCCIÓN!
-  // Fallback a una clave dummy NO SEGURA si no está configurada para evitar que la app crashee al inicio.
-  // Esto es solo para fines de desarrollo y para que el subtask no falle si la key no está en .env aún.
-  // Se debería lanzar un error y detener la app en un escenario real.
-  this.encryptionKey = ENCRYPTION_KEY_HEX ? Buffer.from(ENCRYPTION_KEY_HEX, 'hex') : Buffer.from('0'.repeat(64), 'hex'); // Clave dummy
-  if (!ENCRYPTION_KEY_HEX) {
-    console.warn('ADVERTENCIA: Usando clave de encriptación dummy. NO USAR EN PRODUCCIÓN.');
+// Inicializar con el fallback y luego intentar sobrescribir con la clave de .env
+let encryptionKey = Buffer.from('0'.repeat(64), 'hex'); // Clave dummy por defecto
+console.log('[SecurityModuleInit] encryptionKey inicializada con DUMMY por defecto.');
+
+if (ENCRYPTION_KEY_HEX && ENCRYPTION_KEY_HEX.length === 64) {
+  try {
+    encryptionKey = Buffer.from(ENCRYPTION_KEY_HEX, 'hex');
+    console.log('[SecurityModuleInit] encryptionKey configurada desde API_ENCRYPTION_KEY de .env.');
+  } catch (e) {
+    console.error('[SecurityModuleInit] Error al parsear API_ENCRYPTION_KEY (debe ser hex). Usando DUMMY key.', e);
+    // encryptionKey ya tiene el valor dummy
   }
 } else {
-  this.encryptionKey = Buffer.from(ENCRYPTION_KEY_HEX, 'hex');
+  if (!ENCRYPTION_KEY_HEX) {
+    console.warn('[SecurityModuleInit] ADVERTENCIA: API_ENCRYPTION_KEY no está definida en .env. Usando DUMMY key para encriptación.');
+  } else {
+    console.warn(`[SecurityModuleInit] ADVERTENCIA: API_ENCRYPTION_KEY tiene longitud incorrecta (${ENCRYPTION_KEY_HEX.length}, se esperan 64). Usando DUMMY key para encriptación.`);
+  }
+  // encryptionKey ya tiene el valor dummy
+}
+
+// Verificar que encryptionKey es un Buffer y tiene la longitud correcta (32 bytes para aes-256)
+if (!(encryptionKey instanceof Buffer) || encryptionKey.length !== 32) {
+    console.error('[SecurityModuleInit] FALLO CRÍTICO: encryptionKey no es un Buffer de 32 bytes después de la inicialización. Algo está muy mal. Usando DUMMY key como último recurso.');
+    encryptionKey = Buffer.from('0'.repeat(64), 'hex'); // Re-asegurar la dummy si todo falló
+} else {
+    console.log(`[SecurityModuleInit] encryptionKey final (hex): ${encryptionKey.toString('hex').substring(0,4)}...\${encryptionKey.toString('hex').substring(encryptionKey.toString('hex').length - 4)}`);
 }
 
 
@@ -39,7 +48,7 @@ function encrypt(text) {
   if (!text) return null;
   try {
     const iv = crypto.randomBytes(12); // IV de 12 bytes es recomendado para GCM
-    const cipher = crypto.createCipheriv(ALGORITHM, this.encryptionKey, iv);
+    const cipher = crypto.createCipheriv(ALGORITHM, encryptionKey, iv); // Use module-scoped encryptionKey
     let encrypted = cipher.update(text, 'utf8', 'hex');
     encrypted += cipher.final('hex');
     const authTag = cipher.getAuthTag(); // Obtener el Authentication Tag
@@ -66,7 +75,7 @@ function decrypt(encryptedData, ivHex, authTagHex) {
   try {
     const iv = Buffer.from(ivHex, 'hex');
     const authTag = Buffer.from(authTagHex, 'hex');
-    const decipher = crypto.createDecipheriv(ALGORITHM, this.encryptionKey, iv);
+    const decipher = crypto.createDecipheriv(ALGORITHM, encryptionKey, iv); // Use module-scoped encryptionKey
     decipher.setAuthTag(authTag); // Establecer el Authentication Tag
     let decrypted = decipher.update(encryptedData, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
