@@ -8,6 +8,8 @@ const app = express();
 const db = require('./database/db');
 const logger = require('./utils/logger');
 const binanceService = require('./services/BinanceService');
+const openAIService = require('./services/OpenAIService'); // Import OpenAIService
+const ollamaService = require('./services/OllamaService'); // Import OllamaService
 const PORT = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
@@ -19,6 +21,31 @@ db.testConnection().then(async () => { // Hacer esta función anónima async
   try {
     await binanceService.initializeBinanceClient();
     logger.info('[Server] BinanceService inicializado correctamente.');
+
+    // Intentar inicializar OpenAI Service (no crítico si falla)
+    try {
+      if (await openAIService.initializeOpenAIService()) {
+        logger.info("[Server] OpenAIService inicializado correctamente.");
+      } else {
+        logger.warn("[Server] OpenAIService no se pudo inicializar (puede ser por falta de config o error). Continuará sin OpenAI.");
+      }
+    } catch (openAIInitError) {
+      logger.error("[Server] Ocurrió un error durante la inicialización de OpenAIService:", { error: openAIInitError.message });
+      logger.warn("[Server] Continuará sin OpenAIService.");
+    }
+
+    // Intentar inicializar Ollama Service (no crítico si falla)
+    try {
+      if (await ollamaService.initializeOllamaService()) {
+        logger.info("[Server] OllamaService parece estar disponible.");
+      } else {
+        logger.warn("[Server] OllamaService no está disponible o no se pudo inicializar (verifique URL y si Ollama está en ejecución). Continuará sin Ollama.");
+      }
+    } catch (ollamaInitError) {
+      logger.error("[Server] Ocurrió un error durante la inicialización de OllamaService:", { error: ollamaInitError.message });
+      logger.warn("[Server] Continuará sin OllamaService.");
+    }
+
     app.listen(PORT, () => {
       logger.info(`[Server] Servidor escuchando en el puerto ${PORT} con BinanceService activo.`);
     });

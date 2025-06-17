@@ -18,6 +18,8 @@ CREATE TABLE trading_pairs (
     max_trade_size DECIMAL(20, 8), -- Cantidad máxima para operar
     tick_size DECIMAL(20, 8), -- Mínima variación de precio
     step_size DECIMAL(20, 8), -- Mínima variación de cantidad
+    price_precision INTEGER DEFAULT 8, -- Número de decimales para el precio
+    quantity_precision INTEGER DEFAULT 8, -- Número de decimales para la cantidad
     margin_enabled BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
