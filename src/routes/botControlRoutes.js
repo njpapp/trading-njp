@@ -1,13 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const botControlController = require('../controllers/botControlController');
-const { apiKeyAuth } = require('../middleware/authMiddleware'); // Importar middleware
+const { jwtAuth } = require('../middleware/authMiddleware'); // Usar jwtAuth
 
-// Iniciar el bot (POST - protegida)
-router.post('/start', apiKeyAuth, botControlController.startBot);
+// Iniciar el bot (POST - protegida con JWT)
+router.post('/start', jwtAuth, botControlController.startBot);
 
-// Detener el bot (POST - protegida)
-router.post('/stop', apiKeyAuth, botControlController.stopBot);
+// Detener el bot (POST - protegida con JWT)
+router.post('/stop', jwtAuth, botControlController.stopBot);
 
 // Obtener el estado del bot (GET - sin protección de escritura)
 router.get('/status', botControlController.getBotStatus);
