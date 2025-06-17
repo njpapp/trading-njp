@@ -113,7 +113,7 @@ async function initializeBinanceClient() {
 async function getKlines(symbol, interval = '1h', limit = 100) {
   if (!isInitialized && !binanceClient) throw new Error('Binance client no inicializado.');
   try {
-    const ticks = await binanceClient.candlesticks(symbol, interval, false, { limit });
+    const ticks = await binanceClient.candlesticks(symbol, interval, { limit: limit });
     return ticks.map(t => ({
         openTime: t[0], open: parseFloat(t[1]), high: parseFloat(t[2]), low: parseFloat(t[3]), close: parseFloat(t[4]),
         volume: parseFloat(t[5]), closeTime: t[6], quoteAssetVolume: parseFloat(t[7]), numberOfTrades: t[8],
