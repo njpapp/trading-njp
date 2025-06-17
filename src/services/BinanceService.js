@@ -5,6 +5,7 @@ const logger = require('../utils/logger');
 
 let binanceClient = null;
 let isInitialized = false;
+let paperTradingEnabled = false;
 
 /**
  * Inicializa el cliente de la API de Binance.
@@ -67,14 +68,44 @@ async function initializeBinanceClient() {
     await binanceClient.account(); // Probar autenticación
 
     isInitialized = true;
-    logger.info('[BinanceService] Cliente de Binance inicializado y autenticado correctamente (con nuevo esquema de claves).');
+    logger.info('[BinanceService] Cliente de Binance real inicializado (o skipped si no hay claves). Verificando modo Paper Trading...');
+    try {
+      const config = await db.query("SELECT value FROM settings WHERE key = 'PAPER_TRADING_ENABLED' LIMIT 1");
+      if (config.rows.length > 0 && config.rows[0].value === 'true') {
+        paperTradingEnabled = true;
+        logger.info('[BinanceService] MODO PAPER TRADING ACTIVADO.');
+      } else {
+        paperTradingEnabled = false;
+        logger.info('[BinanceService] Modo Paper Trading DESACTIVADO. Operando con dinero real (si las claves son válidas).');
+      }
+    } catch (dbError) {
+      logger.error('[BinanceService] Error al leer configuración de Paper Trading de la DB. Asumiendo DESACTIVADO.', { error: dbError.message });
+      paperTradingEnabled = false;
+    }
     return binanceClient;
 
   } catch (error) {
-    logger.error('[BinanceService] Error durante la inicialización del cliente de Binance:', { error: error.message, stack: error.stack });
+    logger.warn('[BinanceService] Falló la inicialización del cliente real de Binance. Verificando modo Paper Trading como fallback...', { originalError: error.message });
+    try {
+      const config = await db.query("SELECT value FROM settings WHERE key = 'PAPER_TRADING_ENABLED' LIMIT 1");
+      if (config.rows.length > 0 && config.rows[0].value === 'true') {
+        paperTradingEnabled = true;
+        logger.info('[BinanceService] MODO PAPER TRADING ACTIVADO (cliente real no inicializado).');
+        isInitialized = true; // Marcar como 'inicializado' para BinanceService, ya que puede operar en paper mode.
+        binanceClient = null; // Asegurar que no se use un cliente real medio inicializado.
+        return null; // Retornar null o un objeto mock si fuera necesario para otras funciones que esperan un cliente.
+      } else {
+        paperTradingEnabled = false;
+        logger.info('[BinanceService] Modo Paper Trading DESACTIVADO y cliente real no inicializado. BinanceService no funcional.');
+      }
+    } catch (dbError) {
+      logger.error('[BinanceService] Error al leer configuración de Paper Trading de la DB. Asumiendo DESACTIVADO.', { error: dbError.message });
+      paperTradingEnabled = false;
+    }
+    // Si paper trading no está activado y el cliente real falló, entonces sí es un error total.
     isInitialized = false;
     binanceClient = null;
-    throw error;
+    throw error; // Relanzar el error original de la inicialización del cliente real
   }
 }
 
@@ -151,7 +182,37 @@ async function getTicker(symbol) {
 
 // --- Funciones de Órdenes Spot (placeholders) ---
 async function createSpotOrder(symbol, side, type, quantity, price, options = {}) {
-  if (!isInitialized && !binanceClient) throw new Error('Binance client no inicializado.');
+  if (paperTradingEnabled) {
+    logger.info(`[BinanceService][PaperTrade] Solicitud SPOT: ${side} ${quantity} ${symbol} @ ${price || 'MARKET'}`);
+    // Simular ejecución de orden y devolver una estructura similar a la de Binance
+    const paperOrderId = `PAPER-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+    // Asegurarse que getTicker es llamado con await y que su posible resultado null es manejado.
+    const tickerPrice = await getTicker(symbol);
+    const currentPrice = price || parseFloat(tickerPrice?.price) || 0;
+    const status = (type.toUpperCase() === 'LIMIT' && price) ? 'NEW' : 'FILLED'; // Simular FILLED para MARKET, NEW para LIMIT
+    const executedQty = (status === 'FILLED') ? quantity : 0;
+    const cummulativeQuoteQty = (status === 'FILLED') ? executedQty * currentPrice : 0;
+    const simulatedOrder = {
+      symbol: symbol,
+      orderId: paperOrderId,
+      clientOrderId: options.newClientOrderId || `paper_client_${paperOrderId}`,
+      transactTime: Date.now(),
+      price: type.toUpperCase() === 'LIMIT' ? price.toString() : '0',
+      origQty: quantity.toString(),
+      executedQty: executedQty.toString(),
+      cummulativeQuoteQty: cummulativeQuoteQty.toFixed(8),
+      status: status,
+      timeInForce: options.timeInForce || 'GTC',
+      type: type.toUpperCase(),
+      side: side.toUpperCase(),
+      isPaperTrade: true,
+      fills: status === 'FILLED' ? [{ price: currentPrice.toString(), qty: executedQty.toString(), commission: '0', commissionAsset: symbol.endsWith('USDT') ? 'USDT' : 'BNB' }] : []
+    };
+    logger.info(`[BinanceService][PaperTrade] Orden SPOT simulada:`, simulatedOrder);
+    return simulatedOrder;
+  }
+
+  if (!isInitialized && !binanceClient) throw new Error('Binance client no inicializado (y Paper Trading no activo).');
 
   // Validar side y type
   const validSides = ['BUY', 'SELL'];
@@ -418,7 +479,37 @@ async function marginRepay(asset, amount, symbol, options = {}) {
   }
 }
 async function createMarginOrder(symbol, side, type, quantity, price, options = {}) {
-  if (!isInitialized && !binanceClient) throw new Error('Binance client no inicializado.');
+  if (paperTradingEnabled) {
+    logger.info(`[BinanceService][PaperTrade] Solicitud MARGIN: ${side} ${quantity} ${symbol} @ ${price || 'MARKET'}`);
+    const paperOrderId = `PAPERMARGIN-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+    // Asegurarse que getTicker es llamado con await y que su posible resultado null es manejado.
+    const tickerPrice = await getTicker(symbol);
+    const currentPrice = price || parseFloat(tickerPrice?.price) || 0;
+    const status = (type.toUpperCase() === 'LIMIT' && price) ? 'NEW' : 'FILLED';
+    const executedQty = (status === 'FILLED') ? quantity : 0;
+    const cummulativeQuoteQty = (status === 'FILLED') ? executedQty * currentPrice : 0;
+    const simulatedOrder = {
+      symbol: symbol,
+      orderId: paperOrderId,
+      clientOrderId: options.newClientOrderId || `paper_client_margin_${paperOrderId}`,
+      transactTime: Date.now(),
+      price: type.toUpperCase() === 'LIMIT' ? price.toString() : '0',
+      origQty: quantity.toString(),
+      executedQty: executedQty.toString(),
+      cummulativeQuoteQty: cummulativeQuoteQty.toFixed(8),
+      status: status,
+      timeInForce: options.timeInForce || 'GTC',
+      type: type.toUpperCase(),
+      side: side.toUpperCase(),
+      isIsolated: options.isIsolated === 'TRUE' || options.isIsolated === true,
+      isPaperTrade: true,
+      fills: status === 'FILLED' ? [{ price: currentPrice.toString(), qty: executedQty.toString(), commission: '0', commissionAsset: symbol.endsWith('USDT') ? 'USDT' : 'BNB' }] : []
+    };
+    logger.info(`[BinanceService][PaperTrade] Orden MARGIN simulada:`, simulatedOrder);
+    return simulatedOrder;
+  }
+
+  if (!isInitialized && !binanceClient) throw new Error('Binance client no inicializado (y Paper Trading no activo).');
 
   const validSides = ['BUY', 'SELL'];
   // Actualizado para incluir STOP_LOSS_LIMIT, TAKE_PROFIT_LIMIT

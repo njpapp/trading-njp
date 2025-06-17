@@ -10,7 +10,13 @@ const logger = require('./utils/logger');
 const binanceService = require('./services/BinanceService');
 const openAIService = require('./services/OpenAIService'); // Import OpenAIService
 const ollamaService = require('./services/OllamaService'); // Import OllamaService
+const apiRoutes = require('./routes/index'); // NUEVA IMPORTACIÓN
 const PORT = process.env.PORT || 3000;
+
+app.use(express.json()); // Middleware para parsear bodies JSON
+
+// API Routes
+app.use('/api/v1', apiRoutes);
 
 app.get('/', (req, res) => {
   res.send('Servidor de Autotrading en funcionamiento!');

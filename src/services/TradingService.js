@@ -326,8 +326,8 @@ async function processTradingPair(pair) {
           logger.info(`[TradingService] Orden (${orderType}) ejecutada para ${pair.symbol}: ID ${orderResult.orderId}, Estado ${orderResult.status}`);
           // Registrar transacción (código existente)
           await db.query(
-            `INSERT INTO transactions (pair_id, binance_order_id, client_order_id, type, mode, price, quantity, total_value, status, executed_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            `INSERT INTO transactions (pair_id, binance_order_id, client_order_id, type, mode, price, quantity, total_value, status, executed_at, is_paper_trade)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
             [
               pair.id,
               orderResult.orderId,
@@ -338,10 +338,11 @@ async function processTradingPair(pair) {
               parseFloat(orderResult.executedQty),
               parseFloat(orderResult.cummulativeQuoteQty),
               orderResult.status,
-              new Date(orderResult.transactTime || orderResult.updateTime || Date.now())
+              new Date(orderResult.transactTime || orderResult.updateTime || Date.now()),
+              orderResult.isPaperTrade || false // Asegurar que el valor es booleano
             ]
           );
-          logger.info(`[TradingService] Transacción registrada en DB para orden ID ${orderResult.orderId}`);
+          logger.info(`[TradingService] Transacción registrada en DB para orden ID ${orderResult.orderId}${orderResult.isPaperTrade ? ' (Paper Trade)' : ''}`);
         } else {
           logger.warn(`[TradingService] La orden para ${pair.symbol} no parece haberse ejecutado correctamente o no devolvió orderId.`, orderResult);
         }
