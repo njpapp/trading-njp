@@ -41,6 +41,7 @@ CREATE TABLE transactions (
     total_value DECIMAL(20, 8), -- Valor total de la transacción en la moneda cotizada (quantity * price)
     status order_status NOT NULL,
     executed_at TIMESTAMP WITH TIME ZONE, -- Cuándo se ejecutó/llenó la orden
+    is_paper_trade BOOLEAN DEFAULT FALSE, -- True si es una transacción de paper trading
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -97,7 +98,8 @@ INSERT INTO settings (key, value, description) VALUES
 ('GLOBAL_MAX_LOSS_PERCENTAGE_PER_TRADE', '2', 'Maximum loss percentage allowed per trade. Numeric.'),
 ('GLOBAL_MIN_RISK_BENEFIT_RATIO', '1.5', 'Minimum risk/benefit ratio required for a trade. Numeric.'),
 ('DEFAULT_TRADE_SIZE_USD', '100', 'Default trade size in USD for new trades if not specified by pair.'),
-('LOG_LEVEL', 'INFO', 'Logging level for the system (INFO, WARN, ERROR, DEBUG).');
+('LOG_LEVEL', 'INFO', 'Logging level for the system (INFO, WARN, ERROR, DEBUG).'),
+('PAPER_TRADING_ENABLED', 'false', 'Enable/Disable Paper Trading mode. Boolean (true/false).');
 
 -- Ejemplo de cómo añadir un par (esto se haría vía API o interfaz luego)
 -- INSERT INTO trading_pairs (symbol, base_asset, quote_asset, margin_enabled) VALUES ('BTCUSDT', 'BTC', 'USDT', TRUE);
