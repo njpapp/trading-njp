@@ -1,0 +1,2 @@
+# trading-njp
+Trading binance
