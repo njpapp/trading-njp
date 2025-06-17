@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../contexts/AuthContext.jsx'; // Updated extension
 import { Home, Settings, ListChecks, Bot, Terminal, LogOut, UserCircle } from 'lucide-react'; // Iconos
 
 const Sidebar = () => {

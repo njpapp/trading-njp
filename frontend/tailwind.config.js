@@ -2,10 +2,10 @@
 export default {
   darkMode: ["class"], // Habilitar modo oscuro vía clase
   content: [
-    './pages/**/*.{js,jsx,ts,tsx}',
-    './components/**/*.{js,jsx,ts,tsx}',
-    './app/**/*.{js,jsx,ts,tsx}',
-    './src/**/*.{js,jsx,ts,tsx}', // Asegurar que src también esté
+    "./index.html", // Main HTML file
+    "./src/**/*.{js,ts,jsx,tsx,css}", // Include CSS files in src
+    // Removed './pages', './components' as they are covered by './src/**'
+    // Removed './app/**' as it's likely incorrect for frontend structure
   ],
   prefix: "", // Prefijo para clases de Tailwind (opcional, vacío por defecto)
   theme: {
